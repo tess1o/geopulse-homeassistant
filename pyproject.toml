@@ -1,0 +1,24 @@
+[project]
+name = "geopulse-homeassistant"
+version = "0.1.0"
+description = "GeoPulse integration for Home Assistant"
+license = "Apache-2.0"
+requires-python = ">=3.14.2"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+
+[tool.ruff]
+target-version = "py314"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "SIM", "RUF", "ASYNC", "PL", "PTH", "C4"]
+ignore = ["E501", "RUF001", "RUF002", "PLR0911", "PLR0912", "PLR0913", "PLR0915", "PLR2004", "PLC0415"]
+
+[tool.ruff.lint.isort]
+force-sort-within-sections = true
+known-first-party = ["custom_components"]
+combine-as-imports = true

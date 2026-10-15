@@ -1,0 +1,280 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect to GeoPulse",
+        "description": "In GeoPulse, open **Location Sources → Add → Home Assistant → Personal API token → Create a new token**. Paste the URL and the token here.",
+        "data": {
+          "url": "GeoPulse URL",
+          "token": "API token",
+          "verify_ssl": "Verify SSL certificate"
+        },
+        "data_description": {
+          "url": "The address of your GeoPulse server, for example http://192.168.1.10:8080. Any path is ignored.",
+          "token": "A GeoPulse API token with the `read` and `gps:ingest` scopes.",
+          "verify_ssl": "Turn off only for self-signed certificates."
+        }
+      },
+      "trackers": {
+        "title": "Trackers to forward",
+        "description": "Connected to GeoPulse as **{account}**.\n\nChoose trackers that belong to the owner of this GeoPulse account. Add the integration again for each family member, with their own GeoPulse token. Several devices of the same person are fine; two devices in different places at the same time would make the timeline jump between them.\n\n`person` entities usually lack speed, altitude and battery; a mobile app `device_tracker` gives better data. You can leave this empty and choose later in the options.",
+        "data": {
+          "trackers": "Trackers"
+        }
+      },
+      "read_only": {
+        "title": "Read-only token",
+        "description": "Connected to GeoPulse as **{account}**.\n\nThis token has no `gps:ingest` scope, so Home Assistant cannot send locations to GeoPulse. Status, events and friends will work. To forward locations, create a token with both `read` and `gps:ingest` in GeoPulse and reconfigure the integration."
+      },
+      "reauth_confirm": {
+        "title": "Reauthenticate GeoPulse",
+        "description": "The token for {url} is no longer valid. Create a new token in GeoPulse for the same account and paste it here.",
+        "data": {
+          "token": "API token"
+        }
+      },
+      "reconfigure": {
+        "title": "Reconfigure GeoPulse",
+        "data": {
+          "url": "GeoPulse URL",
+          "token": "API token",
+          "verify_ssl": "Verify SSL certificate"
+        }
+      }
+    },
+    "error": {
+      "cannot_connect": "Cannot connect to GeoPulse. Check the URL and that the server is running.",
+      "invalid_auth": "The token is invalid, expired or revoked.",
+      "unsupported_version": "This GeoPulse server is too old. GeoPulse 2.0 or newer is required.",
+      "insufficient_scope": "The token needs the `read` scope, the `gps:ingest` scope, or both.",
+      "unknown": "Unexpected error. Check the logs."
+    },
+    "abort": {
+      "already_configured": "This GeoPulse account is already configured.",
+      "reauth_successful": "Reauthentication was successful.",
+      "reconfigure_successful": "Reconfiguration was successful.",
+      "wrong_account": "The token belongs to a different GeoPulse account."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "GeoPulse options",
+        "data": {
+          "trackers": "Trackers to forward",
+          "heartbeat_minutes": "Heartbeat interval",
+          "send_battery": "Send battery level",
+          "status_interval": "Status poll interval",
+          "geofence_interval": "Geofence events poll interval",
+          "friends": "Friends"
+        },
+        "data_description": {
+          "trackers": "Choose trackers that belong to the owner of this GeoPulse account.",
+          "heartbeat_minutes": "Re-send the current position when a tracker reports an unchanged position and nothing was sent for this long, so GeoPulse does not record a data gap while you stay put. 0 turns it off.",
+          "status_interval": "How often to read the current stay or trip (minimum 30 seconds).",
+          "geofence_interval": "How often to check for new geofence enter and leave events (minimum 15 seconds). Stay, trip and tracking events follow the status poll.",
+          "friends": "For each GeoPulse friend who shares their live location: a tracker on the map, Activity, Activity duration, Place and battery sensors, and their stay and trip events. Checked every minute. Turning it off removes the friend devices."
+        }
+      }
+    }
+  },
+  "entity": {
+    "sensor": {
+      "activity": {
+        "name": "Activity",
+        "state": {
+          "stay": "Stay",
+          "trip": "Trip",
+          "data_gap": "Data gap",
+          "unknown": "Unknown",
+          "no_data": "No data"
+        },
+        "state_attributes": {
+          "since": {
+            "name": "Since"
+          }
+        }
+      },
+      "place": {
+        "name": "Place"
+      },
+      "activity_since": {
+        "name": "Activity since"
+      },
+      "activity_duration": {
+        "name": "Activity duration"
+      },
+      "friend_activity": {
+        "name": "Activity",
+        "state": {
+          "stay": "Stay",
+          "trip": "Trip"
+        }
+      },
+      "friend_activity_duration": {
+        "name": "Activity duration"
+      },
+      "friend_place": {
+        "name": "Place"
+      },
+      "trip_distance": {
+        "name": "Trip distance"
+      },
+      "today_distance": {
+        "name": "Distance today"
+      },
+      "today_trips": {
+        "name": "Trips today"
+      },
+      "today_stays": {
+        "name": "Stays today"
+      },
+      "today_places": {
+        "name": "Places today"
+      },
+      "today_moving_time": {
+        "name": "Moving time today"
+      },
+      "last_point": {
+        "name": "Last point"
+      },
+      "ingest_status": {
+        "name": "Ingest status",
+        "state": {
+          "ok": "OK",
+          "rejected": "Rejected",
+          "auth_failed": "Authentication failed",
+          "no_data": "No data",
+          "disabled": "Disabled"
+        }
+      },
+      "last_data_received": {
+        "name": "Last data received"
+      },
+      "last_sent": {
+        "name": "Last sent"
+      }
+    },
+    "binary_sensor": {
+      "on_trip": {
+        "name": "On trip"
+      },
+      "tracking": {
+        "name": "Tracking"
+      },
+      "server": {
+        "name": "Server"
+      }
+    },
+    "update": {
+      "geopulse": {
+        "name": "GeoPulse server"
+      }
+    },
+    "event": {
+      "activity": {
+        "name": "GeoPulse activity",
+        "state_attributes": {
+          "event_type": {
+            "state": {
+              "geofence_enter": "Geofence entered",
+              "geofence_leave": "Geofence left",
+              "stay_started": "Stay started",
+              "stay_ended": "Stay ended",
+              "trip_started": "Trip started",
+              "trip_ended": "Trip ended",
+              "tracking_lost": "Tracking lost",
+              "tracking_resumed": "Tracking resumed"
+            }
+          }
+        }
+      }
+    }
+  },
+  "services": {
+    "backfill": {
+      "name": "Backfill history",
+      "description": "Sends the recorded history of a location entity to GeoPulse. GeoPulse ignores points it already has.",
+      "fields": {
+        "entity_id": {
+          "name": "Entity",
+          "description": "The device tracker or person whose history to send."
+        },
+        "start": {
+          "name": "Start",
+          "description": "Start of the period to send."
+        },
+        "end": {
+          "name": "End",
+          "description": "End of the period to send. Defaults to now. At most 31 days after the start."
+        },
+        "config_entry_id": {
+          "name": "GeoPulse account",
+          "description": "The account to send to. Needed only when more than one account could receive it."
+        }
+      }
+    },
+    "flush_queue": {
+      "name": "Flush queue",
+      "description": "Sends queued locations to GeoPulse now, for troubleshooting.",
+      "fields": {
+        "config_entry_id": {
+          "name": "GeoPulse account",
+          "description": "Flush only this account. Defaults to all accounts."
+        }
+      }
+    }
+  },
+  "exceptions": {
+    "recorder_not_available": {
+      "message": "The recorder is not running, so there is no history to send."
+    },
+    "backfill_rejected": {
+      "message": "GeoPulse refused the backfill after {sent} points: {error}"
+    },
+    "backfill_failed": {
+      "message": "Sending the backfill failed after {sent} points: {error}"
+    },
+    "entry_not_found": {
+      "message": "No loaded GeoPulse account that can send locations has the id {entry_id}."
+    },
+    "entry_required": {
+      "message": "More than one GeoPulse account could receive this history. Choose the account."
+    },
+    "no_sending_entry": {
+      "message": "No loaded GeoPulse account has a token that can send locations."
+    },
+    "invalid_range": {
+      "message": "The end must be after the start."
+    },
+    "range_too_long": {
+      "message": "Backfill at most {days} days per call."
+    }
+  },
+  "issues": {
+    "full_access_token": {
+      "title": "GeoPulse token has full access",
+      "description": "{title} uses a GeoPulse token with full access, which can also change and delete your data. In GeoPulse, create a token from the Home Assistant preset (scopes `read` and `gps:ingest`) and reconfigure the integration with it."
+    },
+    "token_expiring": {
+      "title": "GeoPulse token expires soon",
+      "description": "The token used by {title} expires on {expires}. Create a new token in GeoPulse and reconfigure the integration before then."
+    },
+    "cannot_send_locations": {
+      "title": "GeoPulse token cannot send locations",
+      "description": "GeoPulse refused locations from {title} because the token lacks the `gps:ingest` scope. Locations stay queued. Create a token with `gps:ingest` and reconfigure the integration, or remove the trackers in its options."
+    },
+    "source_disabled": {
+      "title": "GeoPulse location source is disabled",
+      "description": "The Home Assistant location source connected to {title} is disabled in GeoPulse. Locations stay queued and are sent once you enable it again under Location Sources."
+    },
+    "source_not_connected": {
+      "title": "GeoPulse token is not connected to a location source",
+      "description": "GeoPulse refused locations from {title} because no Home Assistant location source is connected to its token. Locations stay queued. In GeoPulse, go to Location Sources → Add → Home Assistant → Personal API token → Use an existing token and pick this token."
+    },
+    "server_too_old": {
+      "title": "GeoPulse server is too old",
+      "description": "{title} is connected to GeoPulse {version}. This integration needs GeoPulse 2.0 or newer. Update the server."
+    }
+  }
+}

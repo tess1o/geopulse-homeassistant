@@ -1,0 +1,30 @@
+backfill:
+  fields:
+    entity_id:
+      required: true
+      selector:
+        entity:
+          domain:
+            - device_tracker
+            - person
+    start:
+      required: true
+      selector:
+        datetime:
+    end:
+      required: false
+      selector:
+        datetime:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: geopulse_ha
+
+flush_queue:
+  fields:
+    config_entry_id:
+      required: false
+      selector:
+        config_entry:
+          integration: geopulse_ha
