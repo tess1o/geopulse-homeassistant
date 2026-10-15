@@ -39,7 +39,7 @@ Copy `custom_components/geopulse_ha` from this repository into `<config>/custom_
 
 ### 1. Create a token in GeoPulse
 
-In GeoPulse, open **Location Sources → Add → Home Assistant → Personal API token → Create a new token**. GeoPulse creates an API token with the scopes `read` and `gps:ingest`, connects a Home Assistant location source to it, and shows the **URL** and the **token**.
+In GeoPulse, open **Location Sources → Add → Home Assistant → GeoPulse integration → Create a new token**. GeoPulse creates an API token with the scopes `read` and `gps:ingest`, connects a Home Assistant location source to it, and shows the **URL** and the **token**.
 
 Copy both now: the token is shown only once. If you lose it, create a new one.
 

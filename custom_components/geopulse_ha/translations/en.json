@@ -3,7 +3,7 @@
     "step": {
       "user": {
         "title": "Connect to GeoPulse",
-        "description": "In GeoPulse, open **Location Sources → Add → Home Assistant → Personal API token → Create a new token**. Paste the URL and the token here.",
+        "description": "In GeoPulse, open **Location Sources → Add → Home Assistant → GeoPulse integration → Create a new token**. Paste the URL and the token here.",
         "data": {
           "url": "GeoPulse URL",
           "token": "API token",
@@ -270,7 +270,7 @@
     },
     "source_not_connected": {
       "title": "GeoPulse token is not connected to a location source",
-      "description": "GeoPulse refused locations from {title} because no Home Assistant location source is connected to its token. Locations stay queued. In GeoPulse, go to Location Sources → Add → Home Assistant → Personal API token → Use an existing token and pick this token."
+      "description": "GeoPulse refused locations from {title} because no Home Assistant location source is connected to its token. Locations stay queued. In GeoPulse, go to Location Sources → Add → Home Assistant → GeoPulse integration → Use an existing token and pick this token."
     },
     "server_too_old": {
       "title": "GeoPulse server is too old",
