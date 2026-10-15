@@ -7,7 +7,7 @@ from typing import Final
 
 DOMAIN: Final = "geopulse_ha"
 NAME: Final = "GeoPulse"
-MIN_SERVER_MAJOR: Final = 2
+MIN_SERVER_MAJOR: Final = 1
 
 # Config entry data
 CONF_USER_ID: Final = "user_id"
