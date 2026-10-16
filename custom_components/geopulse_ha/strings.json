@@ -24,7 +24,7 @@
       },
       "read_only": {
         "title": "Read-only token",
-        "description": "Connected to GeoPulse as **{account}**.\n\nThis token has no `gps:ingest` scope, so Home Assistant cannot send locations to GeoPulse. Status, events and friends will work. To forward locations, create a token with both `read` and `gps:ingest` in GeoPulse and reconfigure the integration."
+        "description": "Connected to GeoPulse as **{account}**.\n\nThis token has no `gps:ingest` scope, so Home Assistant cannot send locations to GeoPulse. Your location, status, events and friends will work. To forward locations, create a token with both `read` and `gps:ingest` in GeoPulse and reconfigure the integration."
       },
       "reauth_confirm": {
         "title": "Reauthenticate GeoPulse",
@@ -155,6 +155,22 @@
         "name": "Last sent"
       }
     },
+    "device_tracker": {
+      "location": {
+        "name": "Location",
+        "state_attributes": {
+          "last_seen": {
+            "name": "Last seen"
+          },
+          "received_at": {
+            "name": "Received at"
+          },
+          "location_source": {
+            "name": "Location source"
+          }
+        }
+      }
+    },
     "binary_sensor": {
       "on_trip": {
         "name": "On trip"
@@ -249,6 +265,9 @@
     },
     "range_too_long": {
       "message": "Backfill at most {days} days per call."
+    },
+    "geopulse_entity": {
+      "message": "{entity_id} is a GeoPulse tracker; its history is already in GeoPulse."
     }
   },
   "issues": {

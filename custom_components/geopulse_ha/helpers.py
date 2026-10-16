@@ -6,6 +6,8 @@ from collections.abc import Iterable
 import re
 from typing import Any
 
+from homeassistant.core import HomeAssistant, State
+from homeassistant.helpers import entity_registry as er
 from homeassistant.helpers.device_registry import DeviceEntryType, DeviceInfo
 
 from .const import DOMAIN, NAME, SCOPE_ALL, SCOPE_INGEST, SCOPE_READ
@@ -21,6 +23,35 @@ def has_ingest_scope(scopes: Iterable[str]) -> bool:
     """Return True if the token may send locations."""
     scopes = set(scopes)
     return SCOPE_INGEST in scopes or SCOPE_ALL in scopes
+
+
+def is_geopulse_entity(hass: HomeAssistant, entity_id: str | None) -> bool:
+    """Return True for an entity of this integration, of any account."""
+    if not entity_id:
+        return False
+    entry = er.async_get(hass).async_get(entity_id)
+    return entry is not None and entry.platform == DOMAIN
+
+
+def from_geopulse(hass: HomeAssistant, state: State) -> bool:
+    """Return True if a location state came from GeoPulse itself.
+
+    Forwarding it would send GeoPulse its own (or a friend's) location back. A person
+    takes its location from whichever of its trackers reported last, named in its
+    `source` attribute, so only the updates that came from a GeoPulse tracker count.
+    """
+    return is_geopulse_entity(hass, state.entity_id) or is_geopulse_entity(
+        hass, state.attributes.get("source")
+    )
+
+
+def geopulse_tracker_ids(hass: HomeAssistant) -> list[str]:
+    """Entity ids of every GeoPulse device tracker."""
+    return [
+        entry.entity_id
+        for entry in er.async_get(hass).entities.values()
+        if entry.platform == DOMAIN and entry.domain == "device_tracker"
+    ]
 
 
 def account_identifier(user_id: str) -> tuple[str, str]:

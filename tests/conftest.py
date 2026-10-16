@@ -68,6 +68,8 @@ STATUS_STAY = {
     "lastPoint": {
         "timestamp": "2026-10-14T08:59:00Z",
         "receivedAt": "2026-10-14T08:59:02Z",
+        "latitude": 49.8421,
+        "longitude": 24.0318,
         "accuracy": 8.0,
         "battery": 82.0,
         "sourceType": "HOME_ASSISTANT",

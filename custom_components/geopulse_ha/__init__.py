@@ -127,7 +127,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: GeoPulseConfigEntry) -> 
         display_name=entry.data.get(CONF_DISPLAY_NAME) or token.user_email or NAME,
         url=api.url,
         scopes=token.scopes,
-        server=ServerCoordinator(hass, entry, api),
+        server=ServerCoordinator(
+            hass, entry, api, fetch_source=has_ingest_scope(token.scopes)
+        ),
         send_battery=options.get(CONF_SEND_BATTERY, DEFAULT_SEND_BATTERY),
     )
     await runtime.server.async_config_entry_first_refresh()

@@ -29,6 +29,7 @@ from .const import (
     SERVICE_BACKFILL,
     SERVICE_FLUSH_QUEUE,
 )
+from .helpers import is_geopulse_entity
 
 if TYPE_CHECKING:
     from . import GeoPulseConfigEntry
@@ -105,6 +106,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
                 translation_domain=DOMAIN,
                 translation_key="range_too_long",
                 translation_placeholders={"days": str(BACKFILL_MAX_DAYS)},
+            )
+        if is_geopulse_entity(hass, entity_id):
+            raise ServiceValidationError(
+                translation_domain=DOMAIN,
+                translation_key="geopulse_entity",
+                translation_placeholders={"entity_id": entity_id},
             )
         entry = _sending_entry(hass, call.data.get(ATTR_CONFIG_ENTRY_ID), entity_id)
         runtime = entry.runtime_data

@@ -62,6 +62,10 @@ class StatusSensorDescription(SensorEntityDescription):
     value_fn: Callable[[CurrentStatus], StateType | datetime]
     attrs_fn: Callable[[CurrentStatus], dict[str, Any]] | None = None
     available_fn: Callable[[CurrentStatus], bool] | None = None
+    # A total for today that restarts at midnight in the user's timezone. Timeline
+    # rebuilds can lower it during the day, so it is a `total` with `last_reset`
+    # rather than `total_increasing`, which would count every drop as a reset.
+    daily: bool = False
 
 
 def _activity(status: CurrentStatus) -> str:
@@ -133,7 +137,8 @@ STATUS_SENSORS: tuple[StatusSensorDescription, ...] = (
     StatusSensorDescription(
         key="today_distance",
         device_class=SensorDeviceClass.DISTANCE,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
+        daily=True,
         native_unit_of_measurement=UnitOfLength.METERS,
         suggested_unit_of_measurement=UnitOfLength.KILOMETERS,
         suggested_display_precision=1,
@@ -141,23 +146,27 @@ STATUS_SENSORS: tuple[StatusSensorDescription, ...] = (
     ),
     StatusSensorDescription(
         key="today_trips",
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
+        daily=True,
         value_fn=lambda s: s.today.trip_count if s.today else None,
     ),
     StatusSensorDescription(
         key="today_stays",
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
+        daily=True,
         value_fn=lambda s: s.today.stay_count if s.today else None,
     ),
     StatusSensorDescription(
         key="today_places",
+        # Unique places don't add up across days, so no daily total.
         state_class=SensorStateClass.MEASUREMENT,
         value_fn=lambda s: s.today.unique_places if s.today else None,
     ),
     StatusSensorDescription(
         key="today_moving_time",
         device_class=SensorDeviceClass.DURATION,
-        state_class=SensorStateClass.MEASUREMENT,
+        state_class=SensorStateClass.TOTAL,
+        daily=True,
         native_unit_of_measurement=UnitOfTime.SECONDS,
         suggested_unit_of_measurement=UnitOfTime.MINUTES,
         suggested_display_precision=0,
@@ -221,10 +230,13 @@ async def async_setup_entry(
 ) -> None:
     """Set up GeoPulse sensors."""
     runtime = entry.runtime_data
-    entities: list[SensorEntity] = [
-        ServerSensor(runtime.server, runtime, description)
-        for description in SERVER_SENSORS
-    ]
+    entities: list[SensorEntity] = []
+    if runtime.can_send:
+        # A read-only token has no location source to report on.
+        entities.extend(
+            ServerSensor(runtime.server, runtime, description)
+            for description in SERVER_SENSORS
+        )
     if runtime.status:
         entities.extend(
             StatusSensor(runtime.status, runtime, description)
@@ -268,6 +280,11 @@ class StatusSensor(GeoPulseAccountEntity[StatusCoordinator], SensorEntity):
     def native_value(self) -> StateType | datetime:
         """Return the value."""
         return self.entity_description.value_fn(self.coordinator.data)
+
+    @property
+    def last_reset(self) -> datetime | None:
+        """Return the start of today for daily totals."""
+        return self.coordinator.day_start if self.entity_description.daily else None
 
     @property
     def extra_state_attributes(self) -> dict[str, Any] | None:

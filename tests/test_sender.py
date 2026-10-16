@@ -479,3 +479,27 @@ async def test_removed_tracker_device_is_cleaned_up(
     await hass.async_block_till_done()
     names = {d.name for d in dr.async_entries_for_config_entry(dev_reg, entry.entry_id)}
     assert names == {"GeoPulse Alice", "Bob"}
+
+
+async def test_person_updates_from_geopulse_are_not_forwarded(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A person forwards its phone's updates, not those taken from GeoPulse."""
+    person = "person.alice"
+    phone = {**HOME, "source": TRACKER}
+    hass.states.async_set(person, "home", phone)
+    mock_geopulse(aioclient_mock)
+    await setup_entry(hass, make_entry(options={CONF_TRACKERS: [person]}))
+    geopulse_tracker = "device_tracker.geopulse_alice_location"
+    assert hass.states.get(geopulse_tracker) is not None
+
+    hass.states.async_set(
+        person,
+        "not_home",
+        {**HOME, "latitude": 49.90, "source": geopulse_tracker},
+    )
+    hass.states.async_set(person, "not_home", {**phone, "latitude": 49.95})
+    await _flush(hass, freezer)
+    assert [p["location"]["latitude"] for p in _posted(aioclient_mock)] == [49.95]

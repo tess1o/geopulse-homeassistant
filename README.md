@@ -23,11 +23,31 @@ Connect Home Assistant to your self-hosted [GeoPulse](https://github.com/tess1o/
 
 ## Installation
 
+GeoPulse is a custom integration: Home Assistant doesn't ship it, so you install it with HACS before you can add it. Until it's installed and Home Assistant has restarted, the **Add integration** button in [Setup](#setup) fails with *"This integration does not support configuration via the UI"*.
+
+### 1. Install HACS
+
+Skip this step if **HACS** is already in your Home Assistant sidebar.
+
+1. Follow the official guide for your installation type: [Download HACS](https://hacs.xyz/docs/use/download/download/). On Home Assistant OS, install the **Get HACS** add-on; on Docker or Core, run the download script inside the config directory.
+2. Restart Home Assistant.
+3. Clear your browser cache or reload the page with Ctrl/Cmd+Shift+R.
+4. Go to **Settings → Devices & services → Add integration**, search for **HACS** and add it. Accept the acknowledgements, then open the GitHub link shown, enter the device code and authorize HACS.
+5. **HACS** now appears in the sidebar.
+
+Details and troubleshooting: [HACS: initial configuration](https://hacs.xyz/docs/use/configuration/basic/).
+
+### 2. Install GeoPulse with HACS
+
 [![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=tess1o&repository=geopulse-homeassistant&category=integration)
 
-1. Click the button above, or in HACS open the menu (⋮) → **Custom repositories**, add `https://github.com/tess1o/geopulse-homeassistant` with type **Integration**.
-2. Search for **GeoPulse** in HACS and download it.
-3. Restart Home Assistant.
+1. Click the button above and confirm, or add the repository yourself: in **HACS** open the menu (⋮, top right) → **Custom repositories**, enter `https://github.com/tess1o/geopulse-homeassistant`, choose type **Integration** and click **Add**.
+2. Search for **GeoPulse** in HACS, open it and click **Download**. Keep the latest version unless you need a specific one.
+3. Restart Home Assistant: **Settings → System → ⋮ → Restart Home Assistant**. A reload is not enough for a new integration.
+
+Then continue with [Setup](#setup).
+
+To update later, HACS shows an update for GeoPulse under **Settings → Updates**; install it and restart Home Assistant.
 
 <details>
 <summary>Manual installation without HACS</summary>
@@ -44,6 +64,8 @@ In GeoPulse, open **Location Sources → Add → Home Assistant → GeoPulse int
 Copy both now: the token is shown only once. If you lose it, create a new one.
 
 > Already have an API token (for example from **Profile → Security**)? Choose **Use an existing token** instead, so that GeoPulse connects a Home Assistant location source to it. Without a connected location source GeoPulse refuses forwarded locations.
+
+> **Only want GeoPulse data in Home Assistant?** If your phone already sends locations to GeoPulse through another app, such as OwnTracks, Home Assistant doesn't need to send anything. Create a token under **Profile → Security → API tokens** with **Read only** access instead, and don't add a location source. The integration then skips step 3 and shows only your status, events and friends; see [Token scopes](#token-scopes).
 
 ### 2. Add the integration in Home Assistant
 
@@ -75,7 +97,7 @@ The token's scopes decide what you get:
 | Token scopes | Result |
 |---|---|
 | `read` + `gps:ingest` (recommended) | Everything |
-| `read` only | Read-only: status, events, friends. No forwarding: the trackers step is skipped and the forwarding options are hidden. |
+| `read` only | Read-only: your location, status, events, friends. No forwarding: the trackers step is skipped, the forwarding options and the ingest sensors are left out. |
 | `gps:ingest` only | Sender only: forwarding, the server and ingest status entities. No status, events or friends. |
 | `all` | Works, but raises a repair issue: a full-access token can also change and delete your data |
 
@@ -102,6 +124,7 @@ The integration creates a **GeoPulse &lt;name&gt;** device for the account, wher
 
 | Entity | Description |
 |---|---|
+| `device_tracker.geopulse_alice_location` | Where GeoPulse last saw you, from whichever location source sent the latest point (OwnTracks, the Home Assistant app, …); attributes `last_seen`, `received_at`, `location_source`. Add it to your `person` to use GeoPulse for presence and zones, see [Using GeoPulse for presence](#using-geopulse-for-presence) |
 | `sensor.geopulse_alice_activity` | `stay`, `trip`, `data_gap` (no recent points), `unknown` or `no_data` (GeoPulse has no timeline yet); attribute `since` |
 | `sensor.geopulse_alice_place` | The place of the current stay, empty during a trip; attributes `favorite_id`, `location_source`, `city`, `country`, `latitude`, `longitude` |
 | `sensor.geopulse_alice_activity_since` | Start of the current stay, trip or data gap |
@@ -112,19 +135,26 @@ The integration creates a **GeoPulse &lt;name&gt;** device for the account, wher
 | `sensor.geopulse_alice_trips_today`, `_stays_today`, `_places_today` | Number of trips, stays and distinct places today |
 | `sensor.geopulse_alice_moving_time_today` | Time spent on trips today |
 | `sensor.geopulse_alice_last_point` | Time of the latest GPS point GeoPulse stored; attributes `received_at`, `source_type`, `accuracy`, `battery` |
-| `binary_sensor.geopulse_alice_tracking` | Off while GeoPulse sees a data gap |
+| `binary_sensor.geopulse_alice_tracking` | Off during a data gap or while GeoPulse has no GPS data; unknown until GeoPulse has generated a timeline |
 | `event.geopulse_alice_geopulse_activity` | GeoPulse events, see [Events and automations](#events-and-automations) |
 
-"Today" is the current day in the timezone set in your GeoPulse profile.
+"Today" is the current day in the timezone set in your GeoPulse profile. Distance, trips, stays and moving time today are daily totals that restart at midnight, so Home Assistant's long-term statistics can show them per day, week or month. Places today counts distinct places and isn't summed across days.
 
-### Server and ingest (any token)
+### Using GeoPulse for presence
+
+`device_tracker.geopulse_alice_location` follows your latest point in GeoPulse. That's useful when your phone sends locations to GeoPulse with another app, such as OwnTracks, and Home Assistant has no tracker of its own for you: add the tracker to your person under **Settings → People**, and zones and presence automations work with it.
+
+- It updates with the status poll (every minute by default), so it's up to a minute behind GeoPulse, which is itself as recent as your phone's last report.
+- GeoPulse's trackers can't be forwarded back to GeoPulse. They aren't offered in the trackers list, and when a forwarded person takes its location from a GeoPulse tracker, that update is skipped, so only its other trackers are sent.
+
+### Server and ingest
 
 | Entity | Description |
 |---|---|
 | `binary_sensor.geopulse_alice_server` | On while the GeoPulse server and its database are up (diagnostic, checked every minute); attributes `status`, `database` |
 | `update.geopulse_alice_geopulse_server` | Shows the running GeoPulse version and whether a newer release exists, with a link to its release notes. Informational only: it cannot install anything. Checked every 30 minutes. |
-| `sensor.geopulse_alice_ingest_status` | Health of the location source connected to the token: `ok`, `rejected`, `auth_failed`, `no_data` or `disabled` (diagnostic); attributes with the time and code of the last saved, rejected and authentication-failed point |
-| `sensor.geopulse_alice_last_data_received` | When GeoPulse last received data from this location source |
+| `sensor.geopulse_alice_ingest_status` | Needs `gps:ingest`. Health of the location source connected to the token: `ok`, `rejected`, `auth_failed`, `no_data` or `disabled` (diagnostic); attributes with the time and code of the last saved, rejected and authentication-failed point |
+| `sensor.geopulse_alice_last_data_received` | Needs `gps:ingest`. When GeoPulse last received data from this location source |
 
 ### Forwarded trackers (needs `gps:ingest`)
 
@@ -279,8 +309,9 @@ In both cases the token must belong to the same GeoPulse account. For a differen
 
 ## Troubleshooting
 
-- **Repairs:** check **Settings → System → Repairs**. The integration raises issues for full-access tokens, tokens expiring within 14 days, tokens without `gps:ingest`, tokens not connected to a location source, a disabled location source, and servers older than GeoPulse 2.0. Each issue says how to fix it.
+- **Repairs:** check **Settings → System → Repairs**. The integration raises issues for full-access tokens, tokens expiring within 14 days, tokens refused for lacking `gps:ingest` while sending locations (a read-only token never sends, so it raises nothing), tokens not connected to a location source, a disabled location source, and servers older than GeoPulse 2.0. Each issue says how to fix it.
 - **Locations don't arrive:** look at the **Last sent** sensor of the tracker (`queue_length`, `last_error`) and the **Ingest status** sensor of the account. In GeoPulse, check that the Home Assistant location source is enabled.
+- **"This integration does not support configuration via the UI":** GeoPulse isn't installed on that Home Assistant yet, or it hasn't restarted since. Follow [Installation](#installation), restart, then add the integration again. The HACS button shows the same message when HACS itself isn't installed.
 - **Cannot connect during setup:** the URL must be reachable from Home Assistant, not just from your browser. Inside Docker, `localhost` is the Home Assistant container itself; use the host's IP or the GeoPulse container name.
 - **Diagnostics:** download them from the integration's ⋮ menu; tokens, URLs, names and precise coordinates are redacted.
 - **Debug logs:** turn on **Enable debug logging** on the integration page, or add to `configuration.yaml`:

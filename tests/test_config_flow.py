@@ -5,7 +5,8 @@ from __future__ import annotations
 from homeassistant.config_entries import SOURCE_USER
 from homeassistant.const import CONF_TOKEN, CONF_URL, CONF_VERIFY_SSL
 from homeassistant.core import HomeAssistant
-from homeassistant.data_entry_flow import FlowResultType
+from homeassistant.data_entry_flow import FlowResultType, InvalidData
+from homeassistant.helpers import entity_registry as er
 import pytest
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -293,3 +294,61 @@ async def test_options_read_only(
     result = await hass.config_entries.options.async_init(entry.entry_id)
     keys = {str(key) for key in result["data_schema"].schema}
     assert keys == {CONF_STATUS_INTERVAL, CONF_GEOFENCE_INTERVAL, CONF_FRIENDS}
+
+
+def _register_geopulse_tracker(hass: HomeAssistant) -> str:
+    """Register a GeoPulse friend tracker, as another account would create it."""
+    return (
+        er.async_get(hass)
+        .async_get_or_create(
+            "device_tracker", DOMAIN, "other_friend", suggested_object_id="carol"
+        )
+        .entity_id
+    )
+
+
+@pytest.mark.usefixtures("mock_setup_entry")
+async def test_trackers_step_rejects_geopulse_trackers(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """GeoPulse's own trackers are hidden and refused: they would loop back."""
+    carol = _register_geopulse_tracker(hass)
+    mock_geopulse(aioclient_mock)
+    result = await _start(hass)
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], USER_INPUT
+    )
+    selector = result["data_schema"].schema[CONF_TRACKERS]
+    assert selector.config["exclude_entities"] == [carol]
+
+    with pytest.raises(InvalidData):
+        await hass.config_entries.flow.async_configure(
+            result["flow_id"], {CONF_TRACKERS: ["device_tracker.pixel_8", carol]}
+        )
+
+    result = await hass.config_entries.flow.async_configure(
+        result["flow_id"], {CONF_TRACKERS: ["device_tracker.pixel_8"]}
+    )
+    assert result["type"] is FlowResultType.CREATE_ENTRY
+
+
+async def test_options_reject_geopulse_trackers(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The options refuse the account's own tracker and friends' trackers."""
+    mock_geopulse(aioclient_mock)
+    entry = make_entry()
+    await setup_entry(hass, entry)
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    selector = result["data_schema"].schema[CONF_TRACKERS]
+    assert set(selector.config["exclude_entities"]) == {
+        "device_tracker.geopulse_alice_location",
+        "device_tracker.bob",
+    }
+    with pytest.raises(InvalidData):
+        await hass.config_entries.options.async_configure(
+            result["flow_id"],
+            {CONF_TRACKERS: ["device_tracker.geopulse_alice_location"]},
+        )
+    assert entry.options == {CONF_TRACKERS: []}

@@ -57,7 +57,12 @@ from .const import (
     MIN_STATUS_INTERVAL,
     NAME,
 )
-from .helpers import has_ingest_scope, has_read_scope, server_major
+from .helpers import (
+    geopulse_tracker_ids,
+    has_ingest_scope,
+    has_read_scope,
+    server_major,
+)
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -172,8 +177,16 @@ def _connection_schema(defaults: Mapping[str, Any]) -> vol.Schema:
     )
 
 
-def _trackers_selector() -> EntitySelector:
-    return EntitySelector(EntitySelectorConfig(domain=TRACKER_DOMAINS, multiple=True))
+def _trackers_selector(hass: HomeAssistant) -> EntitySelector:
+    # GeoPulse's own trackers would send GeoPulse its locations back. The selector
+    # also refuses excluded entities when the form is submitted.
+    return EntitySelector(
+        EntitySelectorConfig(
+            domain=TRACKER_DOMAINS,
+            multiple=True,
+            exclude_entities=geopulse_tracker_ids(hass),
+        )
+    )
 
 
 class GeoPulseConfigFlow(ConfigFlow, domain=DOMAIN):
@@ -253,7 +266,7 @@ class GeoPulseConfigFlow(ConfigFlow, domain=DOMAIN):
         return self.async_show_form(
             step_id="trackers",
             data_schema=vol.Schema(
-                {vol.Optional(CONF_TRACKERS, default=[]): _trackers_selector()}
+                {vol.Optional(CONF_TRACKERS, default=[]): _trackers_selector(self.hass)}
             ),
             description_placeholders={"account": self._account.display_name},
         )
@@ -358,7 +371,7 @@ class GeoPulseOptionsFlow(OptionsFlowWithReload):
         if can_send:
             fields[
                 vol.Optional(CONF_TRACKERS, default=options.get(CONF_TRACKERS, []))
-            ] = _trackers_selector()
+            ] = _trackers_selector(self.hass)
             fields[
                 vol.Required(
                     CONF_HEARTBEAT_MINUTES,

@@ -36,6 +36,8 @@ async def async_setup_entry(
 class OnTripSensor(GeoPulseAccountEntity[StatusCoordinator], BinarySensorEntity):
     """On while GeoPulse reports a trip."""
 
+    _attr_device_class = BinarySensorDeviceClass.MOVING
+
     def __init__(
         self, coordinator: StatusCoordinator, runtime: GeoPulseRuntimeData
     ) -> None:
@@ -58,7 +60,7 @@ class OnTripSensor(GeoPulseAccountEntity[StatusCoordinator], BinarySensorEntity)
 
 
 class TrackingSensor(GeoPulseAccountEntity[StatusCoordinator], BinarySensorEntity):
-    """Off while GeoPulse reports a data gap."""
+    """Off during a data gap or with no GPS data; unknown before the first timeline."""
 
     _attr_device_class = BinarySensorDeviceClass.CONNECTIVITY
 
@@ -69,9 +71,12 @@ class TrackingSensor(GeoPulseAccountEntity[StatusCoordinator], BinarySensorEntit
         super().__init__(coordinator, runtime, "tracking")
 
     @property
-    def is_on(self) -> bool:
-        """Return False during a data gap."""
-        return self.coordinator.data.state != "DATA_GAP"
+    def is_on(self) -> bool | None:
+        """Return False during a data gap or without GPS data."""
+        state = self.coordinator.data.state
+        if state == "UNKNOWN":
+            return None
+        return state not in ("DATA_GAP", "NO_DATA")
 
 
 class ServerOnlineSensor(GeoPulseAccountEntity[ServerCoordinator], BinarySensorEntity):

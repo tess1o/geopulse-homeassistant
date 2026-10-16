@@ -12,6 +12,7 @@ from homeassistant.helpers import (
     entity_registry as er,
     issue_registry as ir,
 )
+import pytest
 from pytest_homeassistant_custom_component.common import async_fire_time_changed
 from pytest_homeassistant_custom_component.test_util.aiohttp import (
     AiohttpClientMocker,
@@ -21,6 +22,7 @@ from custom_components.geopulse_ha.const import DOMAIN
 
 from .conftest import (
     API,
+    STATUS_STAY,
     USER_ID,
     make_entry,
     mock_geopulse,
@@ -53,7 +55,14 @@ async def test_setup_creates_entities(
     assert (
         float(hass.states.get("sensor.geopulse_alice_activity_duration").state) == 120
     )
-    assert hass.states.get("sensor.geopulse_alice_distance_today").state == "12.345"
+    distance_today = hass.states.get("sensor.geopulse_alice_distance_today")
+    assert distance_today.state == "12.345"
+    # Daily totals restart at midnight in the user's timezone (Europe/Kyiv).
+    assert distance_today.attributes["state_class"] == "total"
+    assert distance_today.attributes["last_reset"] == "2026-10-14T00:00:00+03:00"
+    places_today = hass.states.get("sensor.geopulse_alice_places_today")
+    assert places_today.attributes["state_class"] == "measurement"
+    assert "last_reset" not in places_today.attributes
     assert hass.states.get("sensor.geopulse_alice_trips_today").state == "3"
     assert hass.states.get("sensor.geopulse_alice_stays_today").state == "4"
     assert hass.states.get("sensor.geopulse_alice_places_today").state == "2"
@@ -77,6 +86,14 @@ async def test_setup_creates_entities(
     assert update.attributes["supported_features"] == 0
 
     assert hass.states.get("event.geopulse_alice_geopulse_activity") is not None
+    location = hass.states.get("device_tracker.geopulse_alice_location")
+    assert location.state == "not_home"
+    assert location.attributes["latitude"] == 49.8421
+    assert location.attributes["longitude"] == 24.0318
+    assert location.attributes["gps_accuracy"] == 8.0
+    assert location.attributes["source_type"] == "gps"
+    assert location.attributes["location_source"] == "HOME_ASSISTANT"
+    assert location.attributes["last_seen"] == "2026-10-14T08:59:00+00:00"
     assert hass.states.get("device_tracker.bob").state == "not_home"
     assert hass.states.get("sensor.bob_battery").state == "55"
 
@@ -113,6 +130,7 @@ async def test_trip_status(
     await setup_entry(hass, make_entry())
     on_trip = hass.states.get("binary_sensor.geopulse_alice_on_trip")
     assert on_trip.state == "on"
+    assert on_trip.attributes["device_class"] == "moving"
     assert on_trip.attributes == {
         **on_trip.attributes,
         "distance_m": 4200,
@@ -261,3 +279,72 @@ async def test_ingest_status_refreshes_every_minute(
         str(call[1]).endswith(("/system/version/status", "/api-tokens/current"))
         for call in aioclient_mock.mock_calls
     )
+
+
+async def test_read_only_entities(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A read-only token has no ingest sensors and never asks for its source."""
+    mock_geopulse(aioclient_mock, scopes=["read"])
+    await setup_entry(hass, make_entry(scopes=["read"], options={}))
+    assert hass.states.get("sensor.geopulse_alice_ingest_status") is None
+    assert hass.states.get("sensor.geopulse_alice_last_data_received") is None
+    assert hass.states.get("device_tracker.geopulse_alice_location") is not None
+    assert hass.states.get("binary_sensor.geopulse_alice_server").state == "on"
+    assert not any(
+        str(call[1]).endswith("/gps/sources/current")
+        for call in aioclient_mock.mock_calls
+    )
+
+
+@pytest.mark.parametrize(
+    ("state", "tracking"),
+    [("STAY", "on"), ("DATA_GAP", "off"), ("NO_DATA", "off"), ("UNKNOWN", "unknown")],
+)
+async def test_tracking_states(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    state: str,
+    tracking: str,
+) -> None:
+    """Tracking is off without data and unknown before the first timeline."""
+    status = {**STATUS_STAY, "state": state}
+    if state == "DATA_GAP":
+        status["dataGap"] = {"since": "2026-10-14T06:00:00Z"}
+    mock_geopulse(aioclient_mock, status=status)
+    await setup_entry(hass, make_entry())
+    assert hass.states.get("binary_sensor.geopulse_alice_tracking").state == tracking
+
+
+async def test_location_unavailable_without_position(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The account tracker is unavailable until GeoPulse has a point."""
+    mock_geopulse(aioclient_mock, status={"state": "NO_DATA"})
+    await setup_entry(hass, make_entry())
+    location = hass.states.get("device_tracker.geopulse_alice_location")
+    assert location.state == "unavailable"
+
+
+@pytest.mark.parametrize(
+    ("timezone", "last_reset"),
+    [
+        ("Z", "2026-10-14T00:00:00+00:00"),
+        (None, "2026-10-14T00:00:00+00:00"),
+        ("+03:00", "2026-10-14T00:00:00+03:00"),
+        ("GMT-05:30", "2026-10-14T00:00:00-05:30"),
+        ("UTC+3", "2026-10-14T00:00:00+03:00"),
+        ("Not/AZone", "2026-10-14T00:00:00+00:00"),
+    ],
+)
+async def test_daily_totals_reset_without_named_timezone(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    timezone: str | None,
+    last_reset: str,
+) -> None:
+    """Daily totals always reset, even when GeoPulse sends an offset or no zone."""
+    mock_geopulse(aioclient_mock, status={**STATUS_STAY, "timezone": timezone})
+    await setup_entry(hass, make_entry())
+    distance_today = hass.states.get("sensor.geopulse_alice_distance_today")
+    assert distance_today.attributes["last_reset"] == last_reset

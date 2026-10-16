@@ -17,6 +17,7 @@ from .api import (
     GeoPulseForbiddenError,
 )
 from .const import BACKFILL_RETRIES, BATCH_SIZE, DOMAIN
+from .helpers import from_geopulse
 from .models import IngestSummary
 from .sender import attribute_battery, state_to_point
 
@@ -60,6 +61,8 @@ async def async_load_points(
     )
     points: list[dict[str, Any]] = []
     for state in states:
+        if from_geopulse(hass, state):
+            continue
         battery = attribute_battery(state) if send_battery else None
         point = state_to_point(state, battery=battery, use_last_reported=False)
         if point is not None:

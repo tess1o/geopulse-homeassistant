@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 
 
@@ -190,6 +190,8 @@ class LastPoint:
 
     timestamp: datetime | None
     received_at: datetime | None
+    latitude: float | None
+    longitude: float | None
     accuracy: float | None
     battery: float | None
     source_type: str | None
@@ -201,10 +203,21 @@ class LastPoint:
         return cls(
             timestamp=parse_dt(data.get("timestamp")),
             received_at=parse_dt(data.get("receivedAt")),
+            latitude=_float(data.get("latitude")),
+            longitude=_float(data.get("longitude")),
             accuracy=_float(data.get("accuracy")),
             battery=_float(data.get("battery")),
             source_type=data.get("sourceType"),
         )
+
+
+def _date(value: Any) -> date | None:
+    if not isinstance(value, str):
+        return None
+    try:
+        return date.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 @dataclass(slots=True)
@@ -216,12 +229,15 @@ class TodaySummary:
     stay_count: int | None
     unique_places: int | None
     moving_seconds: int | None
+    # The day these totals are for, in the user's timezone.
+    day: date | None = None
 
     @classmethod
     def from_dict(cls, data: dict[str, Any] | None) -> TodaySummary | None:
         if not data:
             return None
         return cls(
+            day=_date(data.get("date")),
             distance_meters=_int(data.get("distanceMeters")),
             trip_count=_int(data.get("tripCount")),
             stay_count=_int(data.get("stayCount")),
@@ -240,6 +256,8 @@ class CurrentStatus:
     data_gap: DataGapStatus | None
     last_point: LastPoint | None
     today: TodaySummary | None
+    # IANA name of the user's timezone, which `today` uses.
+    timezone: str | None = None
 
     @property
     def current_since(self) -> datetime | None:
@@ -268,6 +286,7 @@ class CurrentStatus:
             data_gap=DataGapStatus.from_dict(data.get("dataGap")),
             last_point=LastPoint.from_dict(data.get("lastPoint")),
             today=TodaySummary.from_dict(data.get("today")),
+            timezone=data.get("timezone"),
         )
 
 

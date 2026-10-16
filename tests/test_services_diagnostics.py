@@ -7,6 +7,7 @@ from unittest.mock import patch
 
 from homeassistant.core import HomeAssistant, State
 from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers import entity_registry as er
 from homeassistant.setup import async_setup_component
 import pytest
 from pytest_homeassistant_custom_component.components.diagnostics import (
@@ -166,3 +167,73 @@ async def test_url_path_is_ignored(
     mock_geopulse(aioclient_mock)
     await setup_entry(hass, make_entry())
     assert all(str(call[1]).startswith(API) for call in aioclient_mock.mock_calls)
+
+
+@pytest.mark.usefixtures("recorder_loaded")
+async def test_backfill_geopulse_tracker(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A GeoPulse tracker's history is already in GeoPulse."""
+    mock_geopulse(aioclient_mock)
+    await setup_entry(hass, make_entry())
+    tracker = "device_tracker.geopulse_alice_location"
+    assert er.async_get(hass).async_get(tracker) is not None
+    with pytest.raises(ServiceValidationError) as err:
+        await hass.services.async_call(
+            DOMAIN,
+            "backfill",
+            {"entity_id": tracker, "start": START, "end": START + timedelta(days=1)},
+            blocking=True,
+        )
+    assert err.value.translation_key == "geopulse_entity"
+
+
+@pytest.mark.usefixtures("recorder_loaded")
+async def test_backfill_skips_person_states_from_geopulse(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """A person's history leaves out the states it took from a GeoPulse tracker."""
+    mock_geopulse(aioclient_mock)
+    await setup_entry(hass, make_entry())
+    history = [
+        State(
+            "person.alice",
+            "not_home",
+            {"latitude": 49.1, "longitude": 24.0, "source": TRACKER},
+            last_updated=START,
+        ),
+        State(
+            "person.alice",
+            "not_home",
+            {
+                "latitude": 49.2,
+                "longitude": 24.0,
+                "source": "device_tracker.geopulse_alice_location",
+            },
+            last_updated=START + timedelta(minutes=1),
+        ),
+    ]
+    with (
+        patch(
+            "custom_components.geopulse_ha.backfill.get_instance", create=True
+        ) as get_instance,
+        patch("homeassistant.components.recorder.get_instance", get_instance),
+        patch("custom_components.geopulse_ha.backfill._history", return_value=history),
+    ):
+
+        async def run(func, *args):
+            return func(*args)
+
+        get_instance.return_value.async_add_executor_job = run
+        response = await hass.services.async_call(
+            DOMAIN,
+            "backfill",
+            {
+                "entity_id": "person.alice",
+                "start": START,
+                "end": START + timedelta(days=1),
+            },
+            blocking=True,
+            return_response=True,
+        )
+    assert response["points"] == 1

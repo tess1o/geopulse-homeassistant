@@ -1,4 +1,4 @@
-"""Friends sharing their live location, as device trackers."""
+"""The account's own location and friends sharing theirs, as device trackers."""
 
 from __future__ import annotations
 
@@ -12,9 +12,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from . import GeoPulseConfigEntry, GeoPulseRuntimeData
 from .const import DOMAIN
-from .coordinator import FriendsCoordinator
-from .entity import friend_device_info
-from .models import Friend
+from .coordinator import FriendsCoordinator, StatusCoordinator
+from .entity import GeoPulseAccountEntity, friend_device_info
+from .models import Friend, LastPoint
 
 PARALLEL_UPDATES = 0
 
@@ -24,8 +24,10 @@ async def async_setup_entry(
     entry: GeoPulseConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """Set up friend trackers."""
+    """Set up the account's tracker and friend trackers."""
     runtime = entry.runtime_data
+    if runtime.status:
+        async_add_entities([AccountTracker(runtime.status, runtime)])
     coordinator = runtime.friends
     if coordinator is None:
         return
@@ -69,6 +71,71 @@ def _remove_unfriended(
                         device.id, remove_config_entry_id=entry.entry_id
                     )
                 break
+
+
+class AccountTracker(GeoPulseAccountEntity[StatusCoordinator], TrackerEntity):
+    """Where GeoPulse last saw the account owner, from any of their location sources.
+
+    It can feed a person entity and Home Assistant zones when locations reach
+    GeoPulse from another app, such as OwnTracks. The forwarder never sends it back.
+    """
+
+    # Trackers are diagnostic by default, but this is the account's main location.
+    _attr_entity_category = None
+
+    def __init__(
+        self, coordinator: StatusCoordinator, runtime: GeoPulseRuntimeData
+    ) -> None:
+        """Initialize the tracker."""
+        super().__init__(coordinator, runtime, "location")
+
+    @property
+    def _point(self) -> LastPoint | None:
+        point = self.coordinator.data.last_point
+        if point is None or point.latitude is None or point.longitude is None:
+            return None
+        return point
+
+    @property
+    def available(self) -> bool:
+        """Available once GeoPulse has a point with a position."""
+        return super().available and self._point is not None
+
+    @property
+    def source_type(self) -> SourceType:
+        """Return the source type."""
+        return SourceType.GPS
+
+    @property
+    def latitude(self) -> float | None:
+        """Return the latitude."""
+        point = self._point
+        return point.latitude if point else None
+
+    @property
+    def longitude(self) -> float | None:
+        """Return the longitude."""
+        point = self._point
+        return point.longitude if point else None
+
+    @property
+    def location_accuracy(self) -> float:
+        """Return the accuracy in meters (0 when unknown)."""
+        point = self._point
+        return (point.accuracy or 0) if point else 0
+
+    @property
+    def extra_state_attributes(self) -> dict[str, Any]:
+        """Return when and from where GeoPulse got the point."""
+        point = self._point
+        if point is None:
+            return {}
+        return {
+            "last_seen": point.timestamp.isoformat() if point.timestamp else None,
+            "received_at": point.received_at.isoformat() if point.received_at else None,
+            # Not `source_type`: trackers already use that for "gps".
+            "location_source": point.source_type,
+        }
 
 
 class FriendTracker(CoordinatorEntity[FriendsCoordinator], TrackerEntity):

@@ -59,6 +59,7 @@ from .const import (
     SIGNAL_FORWARDER_UPDATED,
     UNLOAD_FLUSH_TIMEOUT,
 )
+from .helpers import from_geopulse
 
 if TYPE_CHECKING:
     from . import GeoPulseConfigEntry
@@ -275,6 +276,8 @@ class LocationForwarder:
 
     @callback
     def _enqueue_state(self, state: State) -> None:
+        if from_geopulse(self.hass, state):
+            return
         point = state_to_point(state, battery=self.battery_for(state))
         if point is None:
             return

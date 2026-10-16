@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, time, timedelta, timezone as dt_timezone, tzinfo
 import logging
+import re
 from typing import TYPE_CHECKING, Any
 
 from homeassistant.core import HomeAssistant
@@ -75,8 +76,43 @@ class GeoPulseCoordinator[T](DataUpdateCoordinator[T]):
 class StatusCoordinator(GeoPulseCoordinator[CurrentStatus]):
     """Polls `/users/me/status`."""
 
+    # Midnight in the user's timezone of the day the `today` totals are for.
+    day_start: datetime | None = None
+
     async def _async_update_data(self) -> CurrentStatus:
-        return await _call(self.api.status)
+        status = await _call(self.api.status)
+        self.day_start = await _day_start(status)
+        return status
+
+
+# Java's fixed-offset zone ids, which zoneinfo doesn't know: `Z`, `+03:00`,
+# `UTC+3`, `GMT+03:00`, `UT-0530`. GeoPulse sends `Z` for a user without a timezone.
+_OFFSET_ZONE = re.compile(r"(?:UTC|GMT|UT)?([+-])(\d{1,2})(?::?(\d{2}))?(?::?\d{2})?")
+
+
+async def _day_start(status: CurrentStatus) -> datetime | None:
+    today = status.today
+    if today is None or today.day is None:
+        return None
+    return datetime.combine(today.day, time(), await _user_timezone(status.timezone))
+
+
+async def _user_timezone(name: str | None) -> tzinfo:
+    """Return the user's timezone, or UTC when it can't be read.
+
+    The daily totals need a `last_reset`, so a wrong midnight is better than none.
+    """
+    if not name or name == "Z":
+        return dt_util.UTC
+    if match := _OFFSET_ZONE.fullmatch(name):
+        sign, hours, minutes = match.groups()
+        offset = timedelta(hours=int(hours), minutes=int(minutes or 0))
+        return dt_timezone(-offset if sign == "-" else offset)
+    # Loading a timezone reads files, so it must not run in the event loop.
+    if timezone := await dt_util.async_get_time_zone(name):
+        return timezone
+    _LOGGER.debug("Unknown GeoPulse timezone %s, using UTC", name)
+    return dt_util.UTC
 
 
 class FriendsCoordinator(GeoPulseCoordinator[dict[str, Friend]]):
@@ -104,13 +140,23 @@ class ServerData:
 
 
 class ServerCoordinator(GeoPulseCoordinator[ServerData]):
-    """Checks health and ingest status every minute, version and token every 30."""
+    """Checks health and ingest status every minute, version and token every 30.
+
+    The ingest status is only read for a token that can send locations; a read-only
+    token has no location source.
+    """
 
     def __init__(
-        self, hass: HomeAssistant, entry: GeoPulseConfigEntry, api: GeoPulseApi
+        self,
+        hass: HomeAssistant,
+        entry: GeoPulseConfigEntry,
+        api: GeoPulseApi,
+        *,
+        fetch_source: bool,
     ) -> None:
         """Initialize the coordinator."""
         super().__init__(hass, entry, api, "server", HEALTH_INTERVAL)
+        self._fetch_source = fetch_source
         self._slow_refreshed: datetime | None = None
         self.data = ServerData()
 
@@ -126,12 +172,13 @@ class ServerCoordinator(GeoPulseCoordinator[ServerData]):
             data.health = None
             return data
 
-        try:
-            data.source = await self.api.current_source()
-        except GeoPulseAuthError as err:
-            raise ConfigEntryAuthFailed(str(err)) from err
-        except GeoPulseError as err:
-            _LOGGER.debug("GeoPulse ingest status refresh failed: %s", err)
+        if self._fetch_source:
+            try:
+                data.source = await self.api.current_source()
+            except GeoPulseAuthError as err:
+                raise ConfigEntryAuthFailed(str(err)) from err
+            except GeoPulseError as err:
+                _LOGGER.debug("GeoPulse ingest status refresh failed: %s", err)
 
         now = dt_util.utcnow()
         if (
