@@ -12,6 +12,7 @@ from homeassistant.helpers import (
     entity_registry as er,
     issue_registry as ir,
 )
+from homeassistant.util import dt as dt_util
 import pytest
 from pytest_homeassistant_custom_component.common import (
     MockConfigEntry,
@@ -22,6 +23,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 
 from custom_components.geopulse_ha.const import (
+    CONF_FIX_TIME_ATTRIBUTE,
     CONF_HEARTBEAT_MINUTES,
     CONF_TRACKERS,
     DOMAIN,
@@ -34,6 +36,8 @@ from .conftest import API, make_entry, mock_geopulse, setup_entry
 TRACKER = "device_tracker.pixel_8"
 BATCH_URL = f"{API}/gps/ingest/home-assistant/batch"
 HOME = {"latitude": 49.84, "longitude": 24.03, "gps_accuracy": 8, "altitude": 296}
+# iCloud3's example from issue #1: `located` 22:54:39 in Europe/Berlin.
+FIX = datetime(2026, 10, 17, 20, 54, 39, tzinfo=UTC)
 
 
 def _posted(aioclient_mock: AiohttpClientMocker) -> list[dict[str, Any]]:
@@ -118,6 +122,58 @@ def test_mapping_uses_last_reported() -> None:
         state_to_point(state, use_last_reported=False)["timestamp"]
         == updated.isoformat()
     )
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        "1792270479",
+        1792270479,
+        1792270479000,
+        "2026-10-17T22:54:39+02:00",
+        "2026-10-17 22:54:39",
+        FIX,
+    ],
+)
+async def test_mapping_uses_fix_time(
+    hass: HomeAssistant, freezer: FrozenDateTimeFactory, value: Any
+) -> None:
+    """The fix time attribute sets the timestamp; naive times are local."""
+    await hass.config.async_set_time_zone("Europe/Berlin")
+    updated = FIX + timedelta(hours=1)
+    freezer.move_to(updated)
+    state = State(
+        TRACKER,
+        "home",
+        {**HOME, "last_timestamp": value},
+        last_updated=updated,
+        last_reported=updated,
+    )
+    point = state_to_point(state, fix_attribute="last_timestamp")
+    assert point["timestamp"] == FIX.isoformat()
+    assert state_to_point(state)["timestamp"] == updated.isoformat()
+
+
+@pytest.mark.parametrize(
+    "value",
+    [
+        None,
+        "",
+        "never",
+        True,
+        0,
+        "-1",
+        str(int((FIX + timedelta(hours=2)).timestamp())),
+    ],
+)
+def test_mapping_fix_time_fallback(freezer: FrozenDateTimeFactory, value: Any) -> None:
+    """Missing, unparseable and future fix times fall back to last_updated."""
+    updated = FIX + timedelta(hours=1)
+    freezer.move_to(updated)
+    attrs = HOME if value is None else {**HOME, "last_timestamp": value}
+    state = State(TRACKER, "home", attrs, last_updated=updated, last_reported=updated)
+    point = state_to_point(state, fix_attribute="last_timestamp")
+    assert point["timestamp"] == updated.isoformat()
 
 
 # ------------------------------------------------------------------ forwarding
@@ -268,6 +324,94 @@ async def test_heartbeat_off(
     hass.states.async_set(TRACKER, "home", HOME)
     await _flush(hass, freezer)
     assert _posted(aioclient_mock) == []
+
+
+def _fix(when: datetime) -> str:
+    """A fix time as iCloud3 stores it: Unix seconds as text."""
+    return str(int(when.timestamp()))
+
+
+async def test_fix_time_skips_stale_fixes(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """Points carry the fix time; a fix that isn't newer is not sent."""
+    now = datetime(2026, 10, 17, 21, 0, tzinfo=UTC)
+    freezer.move_to(now)
+    old, first, second = (now - timedelta(minutes=m) for m in (90, 30, 10))
+    hass.states.async_set(TRACKER, "home", {**HOME, "last_timestamp": _fix(old)})
+    mock_geopulse(aioclient_mock)
+    await setup_entry(
+        hass,
+        _entry(
+            **{CONF_HEARTBEAT_MINUTES: 0, CONF_FIX_TIME_ATTRIBUTE: "last_timestamp"}
+        ),
+    )
+
+    away = {**HOME, "latitude": 49.9}
+    hass.states.async_set(TRACKER, "not_home", {**away, "last_timestamp": _fix(first)})
+    # A new fix at the same spot is still sent.
+    hass.states.async_set(TRACKER, "not_home", {**away, "last_timestamp": _fix(second)})
+    # The tracker goes back to its old home fix: not newer, so not sent.
+    hass.states.async_set(TRACKER, "home", {**HOME, "last_timestamp": _fix(old)})
+    await _flush(hass, freezer)
+    assert [p["timestamp"] for p in _posted(aioclient_mock)] == [
+        first.isoformat(),
+        second.isoformat(),
+    ]
+
+
+async def test_fix_time_heartbeat_sends_only_new_fixes(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """A heartbeat with the same fix sends nothing."""
+    fix = dt_util.utcnow() - timedelta(minutes=1)
+    attrs = {**HOME, "last_timestamp": _fix(fix)}
+    hass.states.async_set(TRACKER, "home", attrs)
+    mock_geopulse(aioclient_mock)
+    await setup_entry(
+        hass,
+        _entry(
+            **{CONF_HEARTBEAT_MINUTES: 15, CONF_FIX_TIME_ATTRIBUTE: "last_timestamp"}
+        ),
+    )
+
+    hass.states.async_set(TRACKER, "home", attrs)
+    await _flush(hass, freezer)
+    assert len(_posted(aioclient_mock)) == 1
+
+    freezer.tick(timedelta(minutes=20))
+    hass.states.async_set(TRACKER, "home", attrs)
+    await _flush(hass, freezer)
+    assert len(_posted(aioclient_mock)) == 1
+
+
+async def test_last_fix_survives_restart(
+    hass: HomeAssistant,
+    aioclient_mock: AiohttpClientMocker,
+    hass_storage: dict[str, Any],
+    freezer: FrozenDateTimeFactory,
+) -> None:
+    """The last fix per tracker is stored, so a restart doesn't resend old fixes."""
+    fix = dt_util.utcnow().replace(microsecond=0) - timedelta(minutes=5)
+    hass.states.async_set(TRACKER, "home", HOME)
+    mock_geopulse(aioclient_mock)
+    entry = _entry(**{CONF_FIX_TIME_ATTRIBUTE: "last_timestamp"})
+    await setup_entry(hass, entry)
+    hass.states.async_set(
+        TRACKER, "not_home", {**HOME, "latitude": 49.9, "last_timestamp": _fix(fix)}
+    )
+    await _flush(hass, freezer)
+
+    assert await hass.config_entries.async_unload(entry.entry_id)
+    stored = hass_storage[f"{DOMAIN}.queue.{entry.entry_id}"]["data"]
+    assert stored["last_fix"] == {TRACKER: fix.isoformat()}
+
+    assert await hass.config_entries.async_setup(entry.entry_id)
+    assert entry.runtime_data.forwarder.last_fix == {TRACKER: fix}
 
 
 # ------------------------------------------------------------------ delivery

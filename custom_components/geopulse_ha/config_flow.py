@@ -38,6 +38,7 @@ from .api import (
 )
 from .const import (
     CONF_DISPLAY_NAME,
+    CONF_FIX_TIME_ATTRIBUTE,
     CONF_FRIENDS,
     CONF_GEOFENCE_INTERVAL,
     CONF_HEARTBEAT_MINUTES,
@@ -394,6 +395,15 @@ class GeoPulseOptionsFlow(OptionsFlowWithReload):
                     default=options.get(CONF_SEND_BATTERY, DEFAULT_SEND_BATTERY),
                 )
             ] = BooleanSelector()
+            # A suggested value, not a default, so clearing the field turns it off.
+            fields[
+                vol.Optional(
+                    CONF_FIX_TIME_ATTRIBUTE,
+                    description={
+                        "suggested_value": options.get(CONF_FIX_TIME_ATTRIBUTE)
+                    },
+                )
+            ] = TextSelector()
         if can_read:
             fields[
                 vol.Required(

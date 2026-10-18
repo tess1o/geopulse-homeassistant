@@ -112,6 +112,7 @@ Open **Settings → Devices & services → GeoPulse → Configure**. Saving relo
 | Trackers to forward | none | `gps:ingest` | `device_tracker` and `person` entities to send to GeoPulse. |
 | Heartbeat interval | 15 min | `gps:ingest` | Re-send an unchanged position after this long, see [Forwarding](#forwarding-locations). 0 turns it off. |
 | Send battery level | on | `gps:ingest` | Include the battery level with forwarded and backfilled points. |
+| Fix time attribute | empty | `gps:ingest` | Tracker attribute with the time of the GPS fix, for example `last_timestamp` for iCloud3, see [Forwarding](#forwarding-locations). Empty uses the time Home Assistant updated the tracker. |
 | Status poll interval | 60 s (min 30) | `read` | How often to read the current stay or trip and today's totals. Stay, trip and tracking events follow this poll. |
 | Geofence events poll interval | 30 s (min 15) | `read` | How often to check for new geofence enter/leave events. |
 | Friends | on | `read` | Friends who share their live location, with their trackers, sensors and events. Checked every minute. Turning it off removes the friend devices. |
@@ -178,6 +179,7 @@ Friends who stop sharing become unavailable; friends you remove in GeoPulse disa
 
 - A point is sent when a tracker's latitude, longitude, GPS accuracy or altitude changes. States without coordinates (for example `home` from a router-based tracker) are skipped.
 - **Heartbeat:** when a tracker reports an unchanged position and nothing was sent for the heartbeat interval, the position is sent again, so GeoPulse doesn't record a data gap while you stay put.
+- **Fix time:** each point is timestamped with the time Home Assistant updated the tracker. Some trackers, such as [iCloud3](https://github.com/gcobb321/icloud3), refresh their state while keeping an older GPS fix, so set **Fix time attribute** to the attribute holding the fix time (`last_timestamp` for iCloud3). Unix seconds and ISO 8601 times are accepted; times without a time zone are read as local time. Trackers with that attribute then send points stamped with the fix time, a new fix is sent even when the position is unchanged, and a fix that isn't newer than the last one sent is skipped. The heartbeat therefore has no effect on them. Trackers without the attribute work as before. A `person` doesn't carry the attribute, so forward the tracker itself.
 - Speed, altitude, accuracy and battery are sent when known and omitted otherwise. Battery comes from the tracker's `battery_level` attribute or, failing that, a battery sensor on the same device.
 - Points go into a persistent queue (up to 10,000 points, stored on disk, so a restart doesn't lose them) and are sent in batches of up to 500. On errors the integration retries after 30 s, 1 min, 5 min, then every 15 min. The **Last sent** sensors show the queue length and the last error.
 - Points GeoPulse already has are dropped by GeoPulse, so re-sending is harmless.
@@ -275,7 +277,7 @@ logbook:
 
 ### `geopulse_ha.backfill`
 
-Sends the recorder history of a `device_tracker` or `person` entity to GeoPulse. GeoPulse drops points it already has, so overlapping ranges are fine. Needs a token with `gps:ingest` and the recorder.
+Sends the recorder history of a `device_tracker` or `person` entity to GeoPulse. GeoPulse drops points it already has, so overlapping ranges are fine. The **Fix time attribute** option applies here too. Needs a token with `gps:ingest` and the recorder.
 
 | Field | Required | Description |
 |---|---|---|

@@ -18,7 +18,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 from pytest_homeassistant_custom_component.typing import ClientSessionGenerator
 
-from custom_components.geopulse_ha.const import DOMAIN
+from custom_components.geopulse_ha.const import CONF_FIX_TIME_ATTRIBUTE, DOMAIN
 
 from .conftest import API, TOKEN, make_entry, mock_geopulse, setup_entry
 
@@ -237,3 +237,63 @@ async def test_backfill_skips_person_states_from_geopulse(
             return_response=True,
         )
     assert response["points"] == 1
+
+
+@pytest.mark.usefixtures("recorder_loaded")
+async def test_backfill_uses_fix_time(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """With the fix time attribute, backfill sends each fix once, at its own time."""
+    mock_geopulse(aioclient_mock)
+    await setup_entry(
+        hass,
+        make_entry(
+            options={"trackers": [TRACKER], CONF_FIX_TIME_ATTRIBUTE: "last_timestamp"}
+        ),
+    )
+    first, second = START, START + timedelta(minutes=20)
+
+    def state(latitude: float, fix: datetime, minutes: int) -> State:
+        return State(
+            TRACKER,
+            "not_home",
+            {
+                "latitude": latitude,
+                "longitude": 24.0,
+                "last_timestamp": str(int(fix.timestamp())),
+            },
+            last_updated=START + timedelta(minutes=minutes),
+        )
+
+    history = [
+        state(49.1, first, 1),
+        state(49.1, first, 5),  # attributes refreshed, same fix
+        state(49.2, second, 21),
+        state(49.1, first, 30),  # back to the old fix
+    ]
+    with (
+        patch(
+            "custom_components.geopulse_ha.backfill.get_instance", create=True
+        ) as get_instance,
+        patch("homeassistant.components.recorder.get_instance", get_instance),
+        patch("custom_components.geopulse_ha.backfill._history", return_value=history),
+    ):
+
+        async def run(func, *args):
+            return func(*args)
+
+        get_instance.return_value.async_add_executor_job = run
+        response = await hass.services.async_call(
+            DOMAIN,
+            "backfill",
+            {"entity_id": TRACKER, "start": START, "end": START + timedelta(days=1)},
+            blocking=True,
+            return_response=True,
+        )
+    assert response["points"] == 2
+    batch = next(
+        data
+        for method, url, data, _ in aioclient_mock.mock_calls
+        if method.lower() == "post" and str(url).endswith("/batch")
+    )
+    assert [p["timestamp"] for p in batch] == [first.isoformat(), second.isoformat()]

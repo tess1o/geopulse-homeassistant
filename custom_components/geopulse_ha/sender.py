@@ -51,6 +51,7 @@ from .const import (
     BACKOFF_SECONDS,
     BATCH_SIZE,
     DOMAIN,
+    FIX_TIME_MAX_FUTURE,
     FLUSH_DEBOUNCE_SECONDS,
     ISSUE_CANNOT_SEND_LOCATIONS,
     ISSUE_SOURCE_DISABLED,
@@ -90,13 +91,51 @@ def _battery(value: Any) -> int | None:
     return round(number)
 
 
+def fix_time(state: State, attribute: str | None) -> datetime | None:
+    """Time of the tracker's own fix, read from an attribute; None if unusable.
+
+    Accepts a datetime, Unix seconds (or milliseconds) and ISO 8601 text. Times
+    without a time zone are local, like iCloud3's `located`.
+    """
+    if not attribute:
+        return None
+    value = state.attributes.get(attribute)
+    if isinstance(value, datetime):
+        moment = value
+    elif (number := _number(value)) is not None:
+        if number <= 0:
+            return None
+        if number > 1e11:
+            number /= 1000
+        try:
+            moment = dt_util.utc_from_timestamp(number)
+        except OverflowError, OSError, ValueError:
+            return None
+    elif isinstance(value, str):
+        if (moment := dt_util.parse_datetime(value)) is None:
+            return None
+    else:
+        return None
+    if moment.tzinfo is None:
+        moment = moment.replace(tzinfo=dt_util.get_default_time_zone())
+    moment = dt_util.as_utc(moment)
+    if moment > dt_util.utcnow() + FIX_TIME_MAX_FUTURE:
+        return None
+    return moment
+
+
 def state_to_point(
     state: State,
     *,
     battery: int | None = None,
     use_last_reported: bool = True,
+    fix_attribute: str | None = None,
 ) -> dict[str, Any] | None:
-    """Map a location state to a GeoPulse point; None if it has no position."""
+    """Map a location state to a GeoPulse point; None if it has no position.
+
+    The timestamp is the fix time from `fix_attribute` when the state has a usable
+    one, else when Home Assistant last updated (or confirmed) the state.
+    """
     if state.state in (STATE_UNAVAILABLE, STATE_UNKNOWN):
         return None
     attrs = state.attributes
@@ -105,9 +144,11 @@ def state_to_point(
     if latitude is None or longitude is None:
         return None
 
-    timestamp: datetime = state.last_updated
-    if use_last_reported and state.last_reported > timestamp:
-        timestamp = state.last_reported
+    timestamp = fix_time(state, fix_attribute)
+    if timestamp is None:
+        timestamp = state.last_updated
+        if use_last_reported and state.last_reported > timestamp:
+            timestamp = state.last_reported
 
     location: dict[str, float] = {"latitude": latitude, "longitude": longitude}
     for key, attr in (
@@ -134,10 +175,10 @@ def attribute_battery(state: State) -> int | None:
     return _battery(state.attributes.get(ATTR_BATTERY_LEVEL))
 
 
-def _location_changed(old: State, new: State) -> bool:
-    return any(
-        old.attributes.get(attr) != new.attributes.get(attr) for attr in LOCATION_ATTRS
-    )
+def _location_changed(old: State, new: State, fix_attribute: str | None = None) -> bool:
+    # A new fix at the same spot is still a new point.
+    attrs = (*LOCATION_ATTRS, fix_attribute) if fix_attribute else LOCATION_ATTRS
+    return any(old.attributes.get(attr) != new.attributes.get(attr) for attr in attrs)
 
 
 class LocationForwarder:
@@ -152,6 +193,7 @@ class LocationForwarder:
         *,
         heartbeat_minutes: int,
         send_battery: bool,
+        fix_attribute: str | None = None,
     ) -> None:
         """Initialize the forwarder."""
         self.hass = hass
@@ -162,12 +204,15 @@ class LocationForwarder:
             timedelta(minutes=heartbeat_minutes) if heartbeat_minutes > 0 else None
         )
         self.send_battery = send_battery
+        self.fix_attribute = fix_attribute
 
         self._store: Store[dict[str, Any]] = Store(
             hass, STORAGE_VERSION, f"{DOMAIN}.queue.{entry.entry_id}"
         )
         self.queue: list[dict[str, Any]] = []
         self.last_sent: dict[str, datetime] = {}
+        # Latest fix time queued per tracker, when the fix time attribute is used.
+        self.last_fix: dict[str, datetime] = {}
         self._last_enqueued: dict[str, datetime] = {}
         self.last_error: str | None = None
         self.paused: str | None = None
@@ -185,9 +230,10 @@ class LocationForwarder:
         """Load the persisted queue and subscribe to the trackers."""
         stored = await self._store.async_load() or {}
         self.queue = [item for item in stored.get("points", []) if "point" in item]
-        for entity_id, value in (stored.get("last_sent") or {}).items():
-            if (parsed := dt_util.parse_datetime(value)) is not None:
-                self.last_sent[entity_id] = parsed
+        for key, target in (("last_sent", self.last_sent), ("last_fix", self.last_fix)):
+            for entity_id, value in (stored.get(key) or {}).items():
+                if (parsed := dt_util.parse_datetime(value)) is not None:
+                    target[entity_id] = parsed
 
         if self.entity_ids:
             self._unsubs.append(
@@ -227,7 +273,9 @@ class LocationForwarder:
         new_state = event.data["new_state"]
         if old_state is None or new_state is None or not self.hass.is_running:
             return
-        if _location_changed(old_state, new_state) or old_state.state in (
+        if _location_changed(
+            old_state, new_state, self.fix_attribute
+        ) or old_state.state in (
             STATE_UNAVAILABLE,
             STATE_UNKNOWN,
         ):
@@ -278,9 +326,24 @@ class LocationForwarder:
     def _enqueue_state(self, state: State) -> None:
         if from_geopulse(self.hass, state):
             return
-        point = state_to_point(state, battery=self.battery_for(state))
+        fix = fix_time(state, self.fix_attribute)
+        last_fix = self.last_fix.get(state.entity_id)
+        if fix is not None and last_fix is not None and fix <= last_fix:
+            # The same fix again, or an older one the tracker went back to.
+            _LOGGER.debug(
+                "Skipping %s: fix from %s is not newer than %s",
+                state.entity_id,
+                fix,
+                last_fix,
+            )
+            return
+        point = state_to_point(
+            state, battery=self.battery_for(state), fix_attribute=self.fix_attribute
+        )
         if point is None:
             return
+        if fix is not None:
+            self.last_fix[state.entity_id] = fix
         self._last_enqueued[state.entity_id] = dt_util.utcnow()
         self.enqueue([{"entity_id": state.entity_id, "point": point}])
 
@@ -305,6 +368,9 @@ class LocationForwarder:
             "points": self.queue,
             "last_sent": {
                 key: value.isoformat() for key, value in self.last_sent.items()
+            },
+            "last_fix": {
+                key: value.isoformat() for key, value in self.last_fix.items()
             },
         }
 

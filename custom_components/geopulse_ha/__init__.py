@@ -19,6 +19,7 @@ from . import repairs
 from .api import GeoPulseApi, GeoPulseAuthError, GeoPulseError
 from .const import (
     CONF_DISPLAY_NAME,
+    CONF_FIX_TIME_ATTRIBUTE,
     CONF_FRIENDS,
     CONF_GEOFENCE_INTERVAL,
     CONF_HEARTBEAT_MINUTES,
@@ -79,6 +80,8 @@ class GeoPulseRuntimeData:
     events: EventDetector | None = None
     forwarder: LocationForwarder | None = None
     send_battery: bool = DEFAULT_SEND_BATTERY
+    # Tracker attribute with the fix time, if set in the options.
+    fix_attribute: str | None = None
     # Device registry id of the "GeoPulse account" device, the parent of tracker
     # and friend devices.
     account_device_id: str | None = None
@@ -131,6 +134,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GeoPulseConfigEntry) -> 
             hass, entry, api, fetch_source=has_ingest_scope(token.scopes)
         ),
         send_battery=options.get(CONF_SEND_BATTERY, DEFAULT_SEND_BATTERY),
+        fix_attribute=(options.get(CONF_FIX_TIME_ATTRIBUTE) or "").strip() or None,
     )
     await runtime.server.async_config_entry_first_refresh()
     runtime.account_device_id = (
@@ -169,6 +173,7 @@ async def async_setup_entry(hass: HomeAssistant, entry: GeoPulseConfigEntry) -> 
                 options.get(CONF_HEARTBEAT_MINUTES, DEFAULT_HEARTBEAT_MINUTES)
             ),
             send_battery=runtime.send_battery,
+            fix_attribute=runtime.fix_attribute,
         )
     if runtime.status:
         geofence_interval = max(

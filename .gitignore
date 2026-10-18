@@ -25,3 +25,6 @@ htmlcov/
 
 # Local secrets
 .env
+
+# Release notes draft for scripts/release.sh --notes-file
+notes.md

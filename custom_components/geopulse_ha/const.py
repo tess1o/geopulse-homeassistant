@@ -21,6 +21,7 @@ CONF_STATUS_INTERVAL: Final = "status_interval"
 CONF_GEOFENCE_INTERVAL: Final = "geofence_interval"
 CONF_FRIENDS: Final = "friends"
 CONF_SEND_BATTERY: Final = "send_battery"
+CONF_FIX_TIME_ATTRIBUTE: Final = "fix_time_attribute"
 
 DEFAULT_HEARTBEAT_MINUTES: Final = 15
 DEFAULT_STATUS_INTERVAL: Final = 60
@@ -45,6 +46,8 @@ BATCH_SIZE: Final = 500
 FLUSH_DEBOUNCE_SECONDS: Final = 2.0
 BACKOFF_SECONDS: Final = (30, 60, 300, 900)
 UNLOAD_FLUSH_TIMEOUT: Final = 5.0
+# A tracker fix time further ahead than this is treated as invalid.
+FIX_TIME_MAX_FUTURE: Final = timedelta(minutes=5)
 
 # Backfill
 BACKFILL_MAX_DAYS: Final = 31

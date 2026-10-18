@@ -87,6 +87,8 @@ async def async_get_config_entry_diagnostics(
             "paused": forwarder.paused,
             "last_error": forwarder.last_error,
             "last_sent": _plain(forwarder.last_sent),
+            "fix_attribute": forwarder.fix_attribute,
+            "last_fix": _plain(forwarder.last_fix),
         }
         if forwarder
         else None,

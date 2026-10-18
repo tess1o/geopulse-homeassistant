@@ -13,6 +13,7 @@ from pytest_homeassistant_custom_component.test_util.aiohttp import (
 )
 
 from custom_components.geopulse_ha.const import (
+    CONF_FIX_TIME_ATTRIBUTE,
     CONF_FRIENDS,
     CONF_GEOFENCE_INTERVAL,
     CONF_HEARTBEAT_MINUTES,
@@ -262,6 +263,7 @@ async def test_options(
         CONF_TRACKERS,
         CONF_HEARTBEAT_MINUTES,
         CONF_SEND_BATTERY,
+        CONF_FIX_TIME_ATTRIBUTE,
         CONF_STATUS_INTERVAL,
         CONF_GEOFENCE_INTERVAL,
         CONF_FRIENDS,
@@ -270,6 +272,7 @@ async def test_options(
         CONF_TRACKERS: ["device_tracker.pixel_8"],
         CONF_HEARTBEAT_MINUTES: 0,
         CONF_SEND_BATTERY: False,
+        CONF_FIX_TIME_ATTRIBUTE: "last_timestamp",
         CONF_STATUS_INTERVAL: 120,
         CONF_GEOFENCE_INTERVAL: 60,
         CONF_FRIENDS: False,
@@ -281,7 +284,32 @@ async def test_options(
     assert result["type"] is FlowResultType.CREATE_ENTRY
     assert entry.options == new_options
     assert entry.runtime_data.forwarder.entity_ids == ["device_tracker.pixel_8"]
+    assert entry.runtime_data.forwarder.fix_attribute == "last_timestamp"
     assert entry.runtime_data.friends is None
+
+
+async def test_options_clear_fix_time_attribute(
+    hass: HomeAssistant, aioclient_mock: AiohttpClientMocker
+) -> None:
+    """The fix time attribute is suggested, not a default, so it can be cleared."""
+    mock_geopulse(aioclient_mock)
+    entry = make_entry(
+        options={CONF_TRACKERS: [], CONF_FIX_TIME_ATTRIBUTE: "last_timestamp"}
+    )
+    await setup_entry(hass, entry)
+    assert entry.runtime_data.fix_attribute == "last_timestamp"
+
+    result = await hass.config_entries.options.async_init(entry.entry_id)
+    schema = result["data_schema"].schema
+    key = next(key for key in schema if str(key) == CONF_FIX_TIME_ATTRIBUTE)
+    assert key.description == {"suggested_value": "last_timestamp"}
+
+    result = await hass.config_entries.options.async_configure(
+        result["flow_id"], {CONF_TRACKERS: []}
+    )
+    await hass.async_block_till_done()
+    assert CONF_FIX_TIME_ATTRIBUTE not in entry.options
+    assert entry.runtime_data.fix_attribute is None
 
 
 async def test_options_read_only(

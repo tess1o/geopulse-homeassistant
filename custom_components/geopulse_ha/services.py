@@ -116,7 +116,12 @@ def async_setup_services(hass: HomeAssistant) -> None:
         entry = _sending_entry(hass, call.data.get(ATTR_CONFIG_ENTRY_ID), entity_id)
         runtime = entry.runtime_data
         points = await async_load_points(
-            hass, entity_id, start, end, send_battery=runtime.send_battery
+            hass,
+            entity_id,
+            start,
+            end,
+            send_battery=runtime.send_battery,
+            fix_attribute=runtime.fix_attribute,
         )
         summary = await async_send_points(runtime.api, points)
         if not call.return_response:

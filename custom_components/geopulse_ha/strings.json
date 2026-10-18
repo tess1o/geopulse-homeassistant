@@ -64,6 +64,7 @@
           "trackers": "Trackers to forward",
           "heartbeat_minutes": "Heartbeat interval",
           "send_battery": "Send battery level",
+          "fix_time_attribute": "Fix time attribute",
           "status_interval": "Status poll interval",
           "geofence_interval": "Geofence events poll interval",
           "friends": "Friends"
@@ -71,6 +72,7 @@
         "data_description": {
           "trackers": "Choose trackers that belong to the owner of this GeoPulse account.",
           "heartbeat_minutes": "Re-send the current position when a tracker reports an unchanged position and nothing was sent for this long, so GeoPulse does not record a data gap while you stay put. 0 turns it off.",
+          "fix_time_attribute": "Tracker attribute with the time of the GPS fix, such as `last_timestamp` for iCloud3. Forwarded and backfilled points then use that time, and a point whose fix is not newer than the last one is skipped. Trackers without the attribute are unaffected. Leave empty to use the time Home Assistant updated the tracker.",
           "status_interval": "How often to read the current stay or trip (minimum 30 seconds).",
           "geofence_interval": "How often to check for new geofence enter and leave events (minimum 15 seconds). Stay, trip and tracking events follow the status poll.",
           "friends": "For each GeoPulse friend who shares their live location: a tracker on the map, Activity, Activity duration, Place and battery sensors, and their stay and trip events. Checked every minute. Turning it off removes the friend devices."
